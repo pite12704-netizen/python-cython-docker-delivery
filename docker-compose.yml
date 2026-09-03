@@ -1,0 +1,123 @@
+# =========================================================================
+# 【通用交付模板】Docker Compose 多服务容器编排定义 (v3.0 旗舰版)
+# =========================================================================
+
+services:
+  # -----------------------------------------------------------------------
+  # 1. 业务主应用容器 (FastAPI / Django 纯密文机器码容器)
+  # -----------------------------------------------------------------------
+  app:
+    # ---------------------------------------------------------------------
+    # 👉 【必须修改 1】：镜像名称与标签
+    # ⚠️ 必须与 auto_export_delivery.sh 中的 `PROJECT_TAG` 保持完全一致！
+    # ---------------------------------------------------------------------
+    image: my_project-release:v1.0.0
+    container_name: app-server
+    restart: always
+    
+    # 🔒【依赖保护机制】：等待数据库健康检查通过后再启动业务，防止启动时数据库拒绝连接
+    depends_on:
+      db:
+        condition: service_healthy
+      # redis:
+      #   condition: service_healthy
+
+    # ---------------------------------------------------------------------
+    # 👉 【按需修改 2】：宿主机映射端口（宿主机端口 : 容器内端口）
+    # ---------------------------------------------------------------------
+    ports:
+      - "8000:8000"
+
+    environment:
+      # -------------------------------------------------------------------
+      # 👉 【必须修改 3】：数据库连接串（根据项目使用的数据库选型取消注释对应行）
+      # -------------------------------------------------------------------
+      # 【PostgreSQL 连接串 (默认)】：
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/app
+      
+      # 【MySQL 8.0 连接串 (若使用 MySQL 请注释上面一行，启用下面一行)】：
+      # - DATABASE_URL=mysql+asyncmy://root:root123456@db:3306/app_db
+
+      # -------------------------------------------------------------------
+      # 👉 【必须修改 4】：生产安全密钥与管理员初始账号密码
+      # ⚠️ 严禁使用 "changethis" 等默认弱口令，否则 Pydantic 校验会拒绝启动！
+      # -------------------------------------------------------------------
+      - SECRET_KEY=b927f8a3c4d1e67980245a1b3f9c7e2d4a6f8b01c3e57924d680123456789abc
+      - FIRST_SUPERUSER=admin@example.com
+      - FIRST_SUPERUSER_PASSWORD=AdminPassword123456!
+      - PROJECT_NAME=EnterpriseApp
+      - PYTHONUNBUFFERED=1
+
+    volumes:
+      - ./data/uploads:/app/static/uploads
+      - ./logs:/app/logs
+      # -------------------------------------------------------------------
+      # 🔑 【可选：Ed25519 硬件指纹绑定与离线授权挂载】
+      # 若项目启用了 Ed25519 机器码授权，请取消以下两行的注释：
+      # -------------------------------------------------------------------
+      # - /sys/class/dmi/id/product_uuid:/etc/host_product_uuid:ro  # 宿主机主板UUID只读映射
+      # - ./license.lic:/app/license.lic:ro                        # 离线授权证书只读映射
+
+  # -----------------------------------------------------------------------
+  # 2. 关系型数据库服务 (👉【按需修改 5】：PostgreSQL 16 与 MySQL 8.0 二选一)
+  # -----------------------------------------------------------------------
+  
+  # === 【选项 A：PostgreSQL 16 方案 (推荐，现代化轻量)】 ===
+  db:
+    image: postgres:16-alpine
+    container_name: app-db
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=app
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  # === 【选项 B：MySQL 8.0 方案 (若使用请取消注释本段，并注释上方选项 A)】 ===
+  # db:
+  #   image: mysql:8.0
+  #   container_name: app-db
+  #   restart: always
+  #   command:
+  #     - --character-set-server=utf8mb4
+  #     - --collation-server=utf8mb4_unicode_ci
+  #     - --default-authentication-plugin=mysql_native_password
+  #   environment:
+  #     - MYSQL_ROOT_PASSWORD=root123456
+  #     - MYSQL_DATABASE=app_db
+  #   ports:
+  #     - "3306:3306"
+  #   volumes:
+  #     - ./data/mysql:/var/lib/mysql
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot123456"]
+  #     interval: 2s
+  #     timeout: 5s
+  #     retries: 15
+  #     start_period: 10s
+
+  # -----------------------------------------------------------------------
+  # 3. 缓存与队列中间件 (👉【按需修改 6】：若项目使用 Redis 则取消注释)
+  # -----------------------------------------------------------------------
+  # redis:
+  #   image: redis:6-alpine
+  #   container_name: app-redis
+  #   restart: always
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - ./data/redis:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 2s
+  #     timeout: 3s
+  #     retries: 5
